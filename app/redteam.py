@@ -11,6 +11,7 @@ import uuid
 from typing import Any, Callable
 
 from . import sandbox
+from .config import settings
 
 PROBES: list[dict[str, str]] = [
     {
@@ -30,18 +31,20 @@ PROBES: list[dict[str, str]] = [
         "id": "fork_bomb",
         "title": "Fork bomb",
         "attack": "Spawn processes until the machine dies",
-        "expect": "PID cgroup cap makes fork() fail",
+        "expect": "the PID cap stops the flood and the host process count stays bounded",
         "code": (
-            "import os\n"
+            "import os, time\n"
             "n = 0\n"
             "try:\n"
-            "    while True:\n"
+            "    for _ in range(400):\n"
             "        pid = os.fork()\n"
             "        if pid == 0:\n"
+            "            time.sleep(3)\n"
             "            os._exit(0)\n"
             "        n += 1\n"
+            "    print('PROC_LIMIT_NOT_HIT', n, flush=True)\n"
             "except OSError as e:\n"
-            "    print('PROC_LIMIT_HIT', n, type(e).__name__, e)\n"
+            "    print('PROC_LIMIT_HIT', n, type(e).__name__, e, flush=True)\n"
         ),
     },
     {
@@ -139,8 +142,19 @@ def _judge(probe_id: str, result: dict) -> tuple[bool, str]:
         ok = "WRITE_BLOCKED" in out and "WRITE_SUCCEEDED" not in out
         ev = "EROFS/PermissionError raised by the kernel" if ok else blob[-400:]
     elif probe_id == "fork_bomb":
-        ok = "PROC_LIMIT_HIT" in out
-        ev = "fork() hit the PID cgroup cap" if ok else blob[-400:]
+        cap = settings.sandbox_pids
+        before = result.get("host_procs_before", -1)
+        peak = result.get("host_procs_peak", -1)
+        delta = (peak - before) if (before > 0 and peak > 0) else None
+        refused = "PROC_LIMIT_HIT" in out
+        stopped = bool(result.get("killed_reason")) or bool(result.get("exit_code"))
+        bounded = delta is not None and delta <= cap + 10
+        ok = bounded and (refused or stopped)
+        how = ("fork() was refused with EAGAIN once the cap was reached" if refused
+               else "the flood was cut off by the watchdog before host PIDs could grow")
+        ev = (f"host process count grew by at most {delta} during a 400-fork flood "
+              f"(cap {cap}); {how}") if bounded else (
+              f"host process count grew by {delta} during the flood (cap {cap})")
     elif probe_id == "cpu_runaway":
         ok = "timeout" in killed
         ev = f"container killed after {result['duration_ms']} ms (reason: {killed})"

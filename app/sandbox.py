@@ -101,6 +101,14 @@ def _dir_size(path: Path) -> int:
     return total
 
 
+def _host_procs() -> int:
+    """Count host processes (used to prove a PID flood stays bounded)."""
+    try:
+        return sum(1 for entry in os.listdir("/proc") if entry.isdigit())
+    except OSError:
+        return -1
+
+
 def _docker_rm(name: str) -> None:
     subprocess.run(["docker", "rm", "-f", name], capture_output=True, text=True, timeout=30)
 
@@ -171,6 +179,8 @@ def execute(
     ]
 
     started = time.monotonic()
+    procs_before = _host_procs()
+    procs_peak = procs_before
     chunks: list[bytes] = []
     err_chunks: list[bytes] = []
     captured = {"bytes": 0, "overflow": False}
@@ -229,6 +239,9 @@ def execute(
             killed_reason.append("output")
             subprocess.run(["docker", "kill", name], capture_output=True, timeout=15)
             break
+        current = _host_procs()
+        if current > procs_peak:
+            procs_peak = current
         time.sleep(0.25)
 
     try:
@@ -286,6 +299,8 @@ def execute(
         "gvisor": gvisor,
         "oom_killed": bool(state.get("OOMKilled")),
         "start_error": (proc.returncode == 125),
+        "host_procs_before": procs_before,
+        "host_procs_peak": procs_peak,
     }
 
 

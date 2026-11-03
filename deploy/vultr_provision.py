@@ -15,6 +15,7 @@ the returned ids (stdout); the API key stays in the environment.
 from __future__ import annotations
 
 import argparse
+import base64
 import ipaddress
 import json
 import os
@@ -32,6 +33,15 @@ exec > /var/log/brz-bootstrap.log 2>&1
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -qq git curl
+# Small instances build the pandas/matplotlib image more reliably with swap.
+if [ ! -f /swapfile ]; then
+  fallocate -l 2G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=2048
+  chmod 600 /swapfile
+  mkswap /swapfile
+  swapon /swapfile
+  echo '/swapfile none swap sw 0 0' >> /etc/fstab
+  sysctl -w vm.swappiness=20
+fi
 rm -rf /opt/brz-src
 git clone --depth 1 {repo} /opt/brz-src
 cd /opt/brz-src
@@ -125,7 +135,7 @@ def pick_plan(preferred: str, region: str) -> str:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--region", default="icn")
-    ap.add_argument("--plan", default="vc2-2c-2gb")
+    ap.add_argument("--plan", default="vc2-1c-1gb")
     ap.add_argument("--label", default="blast-radius-zero")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
@@ -156,7 +166,7 @@ def main() -> None:
         "hostname": "blast-radius-zero",
         "firewall_group_id": fw,
         "sshkey_id": [ssh_key],
-        "user_data": user_data,
+        "user_data": base64.b64encode(user_data.encode()).decode(),
         "backups": "disabled",
         "enable_ipv6": True,
     }

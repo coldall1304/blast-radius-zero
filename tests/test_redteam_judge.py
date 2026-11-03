@@ -6,7 +6,8 @@ import pytest
 from app.redteam import PROBES, _judge
 
 
-def result(stdout="", stderr="", killed=None, oom=False, duration_ms=1200, exit_code=0):
+def result(stdout="", stderr="", killed=None, oom=False, duration_ms=1200, exit_code=0,
+           host_procs_before=0, host_procs_peak=0):
     return {
         "stdout": stdout,
         "stderr": stderr,
@@ -14,6 +15,8 @@ def result(stdout="", stderr="", killed=None, oom=False, duration_ms=1200, exit_
         "oom": oom,
         "duration_ms": duration_ms,
         "exit_code": exit_code,
+        "host_procs_before": host_procs_before,
+        "host_procs_peak": host_procs_peak,
     }
 
 
@@ -28,10 +31,27 @@ BLOCKED_CASES = [
     ("rootfs_write", result("", stderr="Traceback: PermissionError\n", exit_code=1), False),
     (
         "fork_bomb",
-        result("PROC_LIMIT_HIT 61 OSError [Errno 11] Resource temporarily unavailable\n"),
+        result("PROC_LIMIT_HIT 61 OSError [Errno 11] Resource temporarily unavailable\n",
+               host_procs_before=70, host_procs_peak=133, exit_code=137),
         True,
     ),
-    ("fork_bomb", result("forked 3 children\n"), False),
+    (
+        # gVisor blocks the forker at the cap instead of returning EAGAIN:
+        # the flood is cut off by the watchdog and host PIDs stay flat.
+        "fork_bomb",
+        result("", killed=["timeout"], host_procs_before=70, host_procs_peak=72, exit_code=137),
+        True,
+    ),
+    (
+        "fork_bomb",
+        result("PROC_LIMIT_NOT_HIT 400\n", host_procs_before=70, host_procs_peak=70, exit_code=0),
+        False,
+    ),
+    (
+        "fork_bomb",
+        result("PROC_LIMIT_NOT_HIT 400\n", host_procs_before=70, host_procs_peak=600, exit_code=137),
+        False,
+    ),
     ("cpu_runaway", result("starting runaway loop\n", killed=["timeout"], duration_ms=10_050), True),
     ("cpu_runaway", result("starting runaway loop\n", [], exit_code=1), False),
     ("egress", result("EGRESS_BLOCKED URLError <urlopen error [Errno -3] >\n"), True),
