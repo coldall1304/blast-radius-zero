@@ -16,6 +16,12 @@ The live instance is a `vc2-1c-1gb` Vultr VM in Seoul, provisioned by `deploy/vu
 and deployed by `deploy/install.sh`. The planner and the verifier both call **Vultr Serverless
 Inference** (`glm-5.3`).
 
+![Console: the planner's program, the sandbox's real output, and the verifier's verdict](docs/shot-console.png)
+*Console — the program the planner wrote, the bytes the sandbox produced, and the verifier's verdict, side by side.*
+
+![Containment Lab: seven live attacks, 7/7 contained](docs/shot-containment-lab.png)
+*Containment Lab — seven live attacks through the same sandbox path; each card carries the kernel's own evidence line.*
+
 ---
 
 ## 1. What it is
@@ -260,20 +266,20 @@ blast-radius-zero/
 
 ## 9. Verification status
 
-Verified on 2026-11-03 on Docker 29.1.3 with `brz-sandbox:1` built from `sandbox/Dockerfile`
-(Python 3.12.16, numpy 2.5.4, pandas 3.1.0, matplotlib 3.11.2). The dev host exposes `runc` only;
-gVisor is installed by `deploy/install.sh` and auto-detected at runtime (`SANDBOX_RUNTIME=auto`).
+Verified on 2026-11-03 on the **deployed instance** (Vultr `vc2-1c-1gb`, Seoul): Docker with
+**gVisor `runsc`** as the sandbox runtime, `brz-sandbox:1` built from `sandbox/Dockerfile`
+(Python 3.12.16, numpy 2.5.4, pandas 3.1.0, matplotlib 3.11.2), model served by **Vultr Serverless
+Inference** (`glm-5.3`).
 
 | Check | Result |
 |---|---|
-| `.venv/bin/python -m pytest -q` | ✅ `51 passed in 8.4 s` |
-| Containment suite (live kernel behaviour) | ✅ **7/7 contained** — EROFS, PID cap, 10.1 s watchdog kill, `network=none`, no secrets, OOM kill, fsize/disk cap |
-| Task dispatch end-to-end (mock planner) | ✅ step executed, `steps` persisted in SQLite, answer audited |
-| Task dispatch end-to-end (real model, OpenAI-compatible) | ✅ 1 step, `verified: true`, answer grounded in stdout, artifact written |
-| Artifact download | ✅ `HTTP 200`, 199 B JSON round-trip |
+| `.venv/bin/python -m pytest -q` | ✅ `58 passed` |
+| Containment suite (live kernel behaviour, on the deployment) | ✅ **7/7 contained** — EROFS, host-PID bound under a fork flood, 10.2 s watchdog kill, `network=none`, no secrets, OOM kill, fsize/disk cap |
+| Task dispatch end-to-end (real model, Vultr Serverless Inference) | ✅ `verified: true`, 2–3 steps, artifacts `walk.json` + `walk.png` downloadable over HTTPS |
+| Artifact download | ✅ `HTTP 200`, `image/png` and `text/plain` round-trip |
 | Container cleanup | ✅ zero `brz-*` containers left after runs and suites |
 | SSE replay + live `step.log` streaming | ✅ |
-| matplotlib under the real sandbox flags | ✅ PNG written to `/out` |
+| Demo uptime | ✅ `/api/health` 200, TLS valid to 2027-02-01, health-probe timer restarts the unit if it stops answering |
 
 Defects found by running the system during this build, and their resolution:
 
@@ -295,6 +301,18 @@ Defects found by running the system during this build, and their resolution:
   now a per-run volume (fresh container per step) with a per-step snapshot for the audit trail.
 - **Budget exhaustion had no closing answer** — a finalizer call now produces an evidence-bounded
   answer, and the verifier still audits it.
+- **A reasoning model silently produced nothing** — `glm-5.3` spent its entire completion budget on
+  hidden reasoning and returned empty content, so planning failed with "no JSON". The client now
+  forwards `reasoning_effort`, sizes each role's token budget, raises a specific error when a
+  reasoning model returns no content, and escalates the planner budget on retry
+  (`tests/test_inference_guards.py`).
+- **The fork-bomb probe could pass for the wrong reason** — gVisor blocks the forker at the PID cap
+  instead of returning `EAGAIN`, so trusting the victim's own error message was a false-negative
+  trap. The probe now measures host process-count growth against the cap and whether the flood was
+  cut off; unit-tested for both runtimes (`tests/test_redteam_judge.py`).
+- **The header counter mixed all history** — it summed every probe ever recorded, so one
+  development-era failure read as "20/21". It now reports the most recent suite and refreshes when a
+  suite or run completes.
 
 ## 10. Known limitations
 
@@ -315,8 +333,8 @@ Defects found by running the system during this build, and their resolution:
 
 ## 11. License
 
-TODO — no `LICENSE` file exists yet. lablab.ai submissions are expected to be open source
-(MIT/Apache-2.0). Add one before submitting.
+MIT — see [`LICENSE`](LICENSE). Third-party components keep their own licenses; the sandbox image
+is built from `python:3.12-slim` plus numpy, pandas and matplotlib.
 
 ---
 
