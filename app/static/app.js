@@ -33,7 +33,7 @@ async function loadConfig() {
       : `${cfg.runtime}${cfg.gvisor ? ' · gVisor' : ' · runc'}`;
     $('#badge-runtime').className = 'badge ' + (cfg.image_present && !cfg.runtime_error ? 'good' : 'bad');
     $('#badge-model').textContent = cfg.mock ? `model: ${cfg.model} (mock)` : `model: ${cfg.model}`;
-    $('#badge-stats').textContent = `${cfg.stats.runs} runs · ${cfg.stats.probes_blocked}/${cfg.stats.probes_total} probes blocked`;
+    $('#badge-stats').textContent = `${cfg.stats.runs} runs · last suite ${cfg.stats.last_suite_blocked}/${cfg.stats.last_suite_total} contained`;
     renderLimits(cfg.limits);
   } catch (e) {
     $('#badge-runtime').textContent = 'control plane offline';
@@ -313,6 +313,7 @@ function showProbeSummary(sum) {
   box.textContent = sum.all_blocked
     ? `CONTAINMENT VERIFIED — ${sum.contained}/${sum.total} attacks absorbed by the sandbox boundary.`
     : `ATTENTION — ${sum.contained}/${sum.total} attacks contained; inspect the breached probes below.`;
+  loadConfig();
 }
 
 /* ---------------- ledger ---------------- */

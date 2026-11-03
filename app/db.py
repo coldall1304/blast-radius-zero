@@ -192,8 +192,21 @@ def stats() -> dict[str, Any]:
         c = _connect()
         runs = c.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
         contained = c.execute("SELECT COALESCE(SUM(blocked),0), COUNT(*) FROM probes").fetchone()
+        # The most recent containment suite is the number that actually matters;
+        # the cumulative count spans every experiment ever run on the box.
+        suite = c.execute(
+            "SELECT run_id FROM probes GROUP BY run_id ORDER BY MAX(id) DESC LIMIT 1"
+        ).fetchone()
+        last = (0, 0)
+        if suite:
+            last = c.execute(
+                "SELECT COALESCE(SUM(blocked),0), COUNT(*) FROM probes WHERE run_id = ?",
+                (suite[0],),
+            ).fetchone()
         return {
             "runs": runs,
             "probes_blocked": contained[0],
             "probes_total": contained[1],
+            "last_suite_blocked": last[0],
+            "last_suite_total": last[1],
         }
