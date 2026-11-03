@@ -1,0 +1,7 @@
+[Unit]
+Description=Blast Radius Zero health probe
+After=brz.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/brz-healthcheck.sh

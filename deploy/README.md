@@ -124,6 +124,7 @@ Uninstall: `systemctl disable --now brz caddy`, then `rm -rf /opt/brz` and
 | `deploy/build-sandbox.sh` | build + `--network none --read-only` smoke test |
 | `deploy/install.sh` | idempotent Ubuntu 24.04 installer |
 | `deploy/brz.service` | systemd unit for uvicorn on 127.0.0.1:8000 |
+| `deploy/brz-healthcheck.sh` + `.service`/`.timer` | restarts the unit when `/api/health` stops answering (every 10 min) |
 | `deploy/Caddyfile` | TLS reverse proxy, SSE-safe |
 | `.env.example` | every knob, secure defaults, empty secrets |
 | `requirements.txt` | pinned app dependencies |

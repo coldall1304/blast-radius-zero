@@ -225,6 +225,13 @@ install -m 0644 "$APP_DIR/deploy/brz.service" "/etc/systemd/system/${SERVICE_NAM
 systemctl daemon-reload
 systemctl enable "$SERVICE_NAME" >/dev/null
 
+# Health probe: restart the unit when the process is alive but not serving.
+install -m 0755 "$APP_DIR/deploy/brz-healthcheck.sh" /usr/local/bin/brz-healthcheck.sh
+install -m 0644 "$APP_DIR/deploy/brz-health.service" /etc/systemd/system/brz-health.service
+install -m 0644 "$APP_DIR/deploy/brz-health.timer" /etc/systemd/system/brz-health.timer
+systemctl daemon-reload
+systemctl enable --now brz-health.timer >/dev/null
+
 # ------------------------------------------------------------------ sandbox image
 log "building the sandbox image"
 SANDBOX_IMAGE="$SANDBOX_IMAGE" bash "$APP_DIR/deploy/build-sandbox.sh"

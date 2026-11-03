@@ -4,6 +4,18 @@
 
 Submission for lablab.ai × Vultr **Agent Rush Hackathon — Challenge 1: Blast Radius Zero**.
 
+| | |
+|---|---|
+| **Live demo** | https://158.247.240.81.sslip.io |
+| **Demo video** (116 s) | https://158.247.240.81.sslip.io/static/brz-demo.mp4 · also `app/static/brz-demo.mp4` |
+| **Pitch deck** (8 slides) | `docs/slides.pdf` (source: `docs/slides.html`) |
+| **Architecture** | `docs/architecture.md` · **Security model** `docs/security.md` |
+| **Submission package** | `docs/submission.md` (field values, verified evidence) |
+
+The live instance is a `vc2-1c-1gb` Vultr VM in Seoul, provisioned by `deploy/vultr_provision.py`
+and deployed by `deploy/install.sh`. The planner and the verifier both call **Vultr Serverless
+Inference** (`glm-5.3`).
+
 ---
 
 ## 1. What it is
