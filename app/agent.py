@@ -116,18 +116,30 @@ async def _ask_planner(inference: Inference, task: str, steps: list[dict[str, An
         {"role": "user", "content": "\n\n".join(user)},
     ]
     last_error = ""
-    for _attempt in range(2):
-        raw = await inference.chat(messages)
+    budgets = [settings.planner_max_tokens, settings.planner_max_tokens * 2]
+    for attempt, budget in enumerate(budgets):
+        try:
+            raw, finish = await inference.chat_ex(messages, max_tokens=budget)
+        except InferenceError as exc:
+            last_error = str(exc)
+            messages.append({
+                "role": "user",
+                "content": "Your last turn produced no usable JSON. Reply with the JSON object only "
+                           "and keep any internal reasoning extremely short.",
+            })
+            continue
         try:
             return extract_json(raw)
         except InferenceError as exc:
             last_error = str(exc)
+            if finish == "length":
+                last_error = f"reply was cut off at {budget} tokens before the JSON object was complete"
             messages.append({"role": "assistant", "content": raw[:1500]})
             messages.append({
                 "role": "user",
                 "content": "That was not a single valid JSON object. Reply again with JSON only.",
             })
-    raise InferenceError(f"planner produced no JSON: {last_error}")
+    raise InferenceError(f"planner produced no JSON after {len(budgets)} attempts: {last_error}")
 
 
 async def _verify(inference: Inference, task: str, answer: str,
@@ -140,7 +152,7 @@ async def _verify(inference: Inference, task: str, answer: str,
         raw = await inference.chat([
             {"role": "system", "content": VERIFIER_SYSTEM},
             {"role": "user", "content": user},
-        ], temperature=0.0, max_tokens=500)
+        ], temperature=0.0, max_tokens=settings.verifier_max_tokens)
         obj = extract_json(raw)
         return {"sufficient": bool(obj.get("sufficient")), "reason": str(obj.get("reason", "")),
                 "followup": str(obj.get("followup", ""))}
@@ -261,7 +273,7 @@ async def run_task(run_id: str, task: str, publish: Callable[[dict[str, Any]], N
             raw = await inference.chat([
                 {"role": "system", "content": FINALIZER_SYSTEM},
                 {"role": "user", "content": f"TASK:\n{task}\n\nEVIDENCE:\n{_evidence_block(steps)}"},
-            ], temperature=0.1, max_tokens=700)
+            ], temperature=0.1, max_tokens=settings.finalizer_max_tokens)
             decision = extract_json(raw)
             answer = str(decision.get("answer", "")).strip()
             if answer:

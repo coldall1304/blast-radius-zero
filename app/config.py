@@ -34,6 +34,12 @@ class Settings:
     inference_api_key: str = _env("INFERENCE_API_KEY", "")
     inference_model: str = _env("INFERENCE_MODEL", "glm-5.3")
     inference_timeout_s: int = _env_int("INFERENCE_TIMEOUT_S", 90)
+    # Reasoning models (e.g. glm-5.3) otherwise burn the whole completion budget on
+    # hidden reasoning and return empty content; "low" keeps them terse and fast.
+    inference_reasoning_effort: str = _env("INFERENCE_REASONING_EFFORT", "low")
+    planner_max_tokens: int = _env_int("PLANNER_MAX_TOKENS", 3000)
+    verifier_max_tokens: int = _env_int("VERIFIER_MAX_TOKENS", 1200)
+    finalizer_max_tokens: int = _env_int("FINALIZER_MAX_TOKENS", 2000)
     mock_inference: bool = _env_bool("MOCK_INFERENCE", False)
 
     # --- Sandbox ---

@@ -29,9 +29,18 @@ class Inference:
         return settings.inference_model
 
     async def chat(self, messages: list[dict[str, str]], temperature: float = 0.2,
-                   max_tokens: int = 1800) -> str:
+                   max_tokens: int | None = None,
+                   reasoning_effort: str | None = None) -> str:
+        text, _finish = await self.chat_ex(messages, temperature, max_tokens, reasoning_effort)
+        return text
+
+    async def chat_ex(self, messages: list[dict[str, str]], temperature: float = 0.2,
+                      max_tokens: int | None = None,
+                      reasoning_effort: str | None = None) -> tuple[str, str]:
+        """Return ``(content, finish_reason)`` so callers can spot a cut-off reply."""
+        budget = max_tokens or settings.planner_max_tokens
         if settings.mock_inference:
-            return _mock_chat(messages)
+            return _mock_chat(messages), "stop"
         if not settings.inference_api_key:
             raise InferenceError("INFERENCE_API_KEY is not configured")
 
@@ -39,8 +48,12 @@ class Inference:
             "model": settings.inference_model,
             "messages": messages,
             "temperature": temperature,
-            "max_tokens": max_tokens,
+            "max_tokens": budget,
         }
+        effort = (reasoning_effort if reasoning_effort is not None
+                  else settings.inference_reasoning_effort)
+        if effort and effort != "default":
+            payload["reasoning_effort"] = effort
         headers = {"Authorization": f"Bearer {settings.inference_api_key}"}
         url = f"{settings.inference_base_url.rstrip('/')}/chat/completions"
         try:
@@ -54,9 +67,19 @@ class Inference:
 
         try:
             body = r.json()
-            return body["choices"][0]["message"]["content"] or ""
+            choice = body["choices"][0]
+            content = choice["message"]["content"] or ""
+            finish = str(choice.get("finish_reason") or "")
         except (KeyError, IndexError, ValueError) as exc:
             raise InferenceError(f"unexpected inference payload: {r.text[:300]}") from exc
+        if not content.strip() and finish == "length":
+            usage = body.get("usage") or {}
+            spent = (usage.get("completion_tokens_details") or {}).get("reasoning_tokens")
+            raise InferenceError(
+                f"model returned no content: it spent the whole {budget}-token budget "
+                f"on hidden reasoning (reasoning_tokens={spent})"
+            )
+        return content, finish
 
 
 def extract_json(text: str) -> dict[str, Any]:
