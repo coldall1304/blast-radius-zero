@@ -1,0 +1,22 @@
+# runtime state
+data/
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+
+# secrets
+.env
+
+# python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+# editors / os
+.DS_Store
+*.swp
+
+# scratch
+*.log

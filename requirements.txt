@@ -1,0 +1,9 @@
+# Direct runtime dependencies only. Everything else is transitive and pinned by
+# pip's resolver at install time; re-run deploy/install.sh to refresh the venv.
+#
+# Versions are the ones this app was verified against (Python 3.12 venv on
+# Ubuntu 24.04). Do not float them without re-running the smoke tests.
+fastapi==0.162.0
+uvicorn[standard]==0.54.0
+pydantic==2.14.2
+httpx==0.28.1

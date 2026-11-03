@@ -1,0 +1,51 @@
+[Unit]
+Description=Blast Radius Zero control plane
+Documentation=file:///opt/brz/deploy/README.md
+After=network-online.target docker.service
+Wants=network-online.target docker.service
+# Deliberately not Requires=: a docker restart should not take the API down
+# permanently, and the sandbox call path reports a clean error meanwhile.
+
+[Service]
+Type=simple
+User=brz
+Group=brz
+WorkingDirectory=/opt/brz
+EnvironmentFile=/opt/brz/.env
+Environment=PATH=/opt/brz/.venv/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/opt/brz/.venv/bin/uvicorn app.main:app \
+    --host 127.0.0.1 \
+    --port 8000 \
+    --proxy-headers \
+    --forwarded-allow-ips 127.0.0.1 \
+    --no-access-log
+Restart=always
+RestartSec=2s
+TimeoutStopSec=20s
+KillMode=mixed
+
+# --- hardening -------------------------------------------------------------
+# NoNewPrivileges must stay OFF: the service shells out to the docker CLI, and
+# the CLI/daemon path needs setuid-capable helpers in some configurations.
+# Everything else below is safe with the docker CLI.
+NoNewPrivileges=no
+PrivateTmp=yes
+ProtectSystem=full
+ProtectHome=yes
+ReadWritePaths=/opt/brz/data
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+UMask=0077
+LimitNOFILE=4096
+
+# --- logging ---------------------------------------------------------------
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=brz
+
+[Install]
+WantedBy=multi-user.target

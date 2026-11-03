@@ -1,0 +1,46 @@
+# Blast Radius Zero — Caddy reverse proxy in front of 127.0.0.1:8000.
+#
+# The site address comes from the environment so the same file works for a real
+# domain and for a no-DNS setup:
+#     BRZ_DOMAIN=203.0.113.10.sslip.io     # sslip.io resolves to the IP; Caddy
+#                                          # then gets a normal Let's Encrypt cert
+#     BRZ_DOMAIN=brz.example.com
+#
+# install.sh writes /etc/systemd/system/caddy.service.d/10-brz-domain.conf with
+# Environment=BRZ_DOMAIN=... ; for manual runs: `BRZ_DOMAIN=... caddy run`.
+{$BRZ_DOMAIN} {
+	# Only the JSON API is posted to; everything else is static assets.
+	request_body {
+		max_size 64KB
+	}
+
+	# Server-Sent Events (/api/runs/{id}/events) must never be buffered or
+	# compressed, or the live run view stalls until the run finishes.
+	@sse path /api/runs/*/events
+	reverse_proxy @sse 127.0.0.1:8000 {
+		flush_interval -1
+		transport http {
+			read_timeout 1h
+		}
+	}
+
+	# Static assets and ordinary API calls.
+	@notsse not path /api/runs/*/events
+	encode @notsse zstd gzip
+	reverse_proxy @notsse 127.0.0.1:8000 {
+		flush_interval -1
+	}
+
+	header {
+		-Server
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy no-referrer
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+	}
+
+	log {
+		output stderr
+		format console
+	}
+}

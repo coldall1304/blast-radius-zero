@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Blast Radius Zero — containment-first agent runtime</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <div class="mark">BRZ</div>
+    <div>
+      <h1>Blast Radius Zero</h1>
+      <p>Containment-first agent runtime · Vultr</p>
+    </div>
+  </div>
+  <div class="badges" id="badges">
+    <span class="badge" id="badge-runtime">runtime …</span>
+    <span class="badge" id="badge-model">model …</span>
+    <span class="badge" id="badge-stats">—</span>
+  </div>
+</header>
+
+<nav class="tabs">
+  <button class="tab active" data-view="console">Console</button>
+  <button class="tab" data-view="lab">Containment Lab</button>
+  <button class="tab" data-view="ledger">Ledger</button>
+  <div class="tabs-right">
+    <span class="live" id="live-dot"></span><span id="live-label">idle</span>
+  </div>
+</nav>
+
+<main>
+  <!-- ============ CONSOLE ============ -->
+  <section id="view-console" class="view active">
+    <div class="composer">
+      <label for="task">Task</label>
+      <textarea id="task" rows="3" placeholder="e.g. Analyze /out is empty — generate a 12-month revenue table with growth, compute CAGR, and save a chart."></textarea>
+      <div class="composer-row">
+        <div class="examples" id="examples">
+          <button class="chip" data-task="Generate a 500-row synthetic sales dataset, compute monthly revenue, find the top 3 regions, and write a summary CSV to /out.">CSV analyst</button>
+          <button class="chip" data-task="Prove that this sandbox cannot reach the internet: attempt three different egress methods and report exactly which system call errors you get.">Prove-It reviewer</button>
+          <button class="chip" data-task="Write a Python program that deliberately divides by zero, catch the error, then fix it on a second attempt and print both outcomes.">Self-healing runner</button>
+          <button class="chip" data-task="Simulate a 20-step random walk, save it as JSON, then compute mean and standard deviation from the saved file and verify the numbers match.">Chart anything</button>
+        </div>
+        <button id="run-btn" class="primary">Dispatch to sandbox</button>
+      </div>
+      <p class="hint">Every step runs in a fresh, network-less container. Files only leave through <code>/out</code>.</p>
+    </div>
+
+    <div id="run-panel" class="run-panel hidden">
+      <div class="run-head">
+        <div>
+          <div class="run-id" id="run-id">—</div>
+          <div class="run-task" id="run-task"></div>
+        </div>
+        <div class="run-state" id="run-state">queued</div>
+      </div>
+      <div class="containment-strip" id="limits-strip"></div>
+      <div id="steps"></div>
+      <div id="answer-box" class="answer hidden">
+        <div class="answer-head">
+          <span>Answer</span>
+          <span id="verify-pill" class="pill"></span>
+        </div>
+        <div class="answer-body" id="answer-body"></div>
+        <div class="answer-meta" id="answer-meta"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ LAB ============ -->
+  <section id="view-lab" class="view">
+    <div class="lab-head">
+      <div>
+        <h2>Containment Lab</h2>
+        <p>Seven real attacks, executed through the same sandbox path the agent uses. Nothing here is mocked.</p>
+      </div>
+      <button id="probe-btn" class="primary">Run all 7 probes</button>
+    </div>
+    <div id="probe-summary" class="probe-summary hidden"></div>
+    <div id="probe-grid" class="probe-grid"></div>
+  </section>
+
+  <!-- ============ LEDGER ============ -->
+  <section id="view-ledger" class="view">
+    <div class="lab-head">
+      <div>
+        <h2>Run ledger</h2>
+        <p>Immutable record of every dispatch: exit codes, limits, artifacts and audit verdicts.</p>
+      </div>
+      <button id="refresh-ledger" class="ghost">Refresh</button>
+    </div>
+    <div class="table-wrap">
+      <table id="ledger">
+        <thead>
+          <tr><th>Run</th><th>Kind</th><th>Task</th><th>Steps</th><th>Verdict</th><th>Status</th><th>When</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
