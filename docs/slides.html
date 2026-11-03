@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Blast Radius Zero — slide deck</title>
+<style>
+  @page { size: 1280px 720px; margin: 0; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #0a1a14; color: #e5e7eb;
+         font-family: "DejaVu Sans", Inter, Arial, sans-serif; }
+  .slide { width: 1280px; height: 720px; padding: 56px 64px; position: relative;
+           page-break-after: always; overflow: hidden; }
+  .slide:last-child { page-break-after: auto; }
+  h1 { font-size: 54px; margin: 0 0 12px; color: #6ee7b7; letter-spacing: -0.5px; }
+  h2 { font-size: 34px; margin: 0 0 22px; color: #6ee7b7; }
+  h3 { font-size: 20px; margin: 0 0 8px; color: #ffffff; }
+  p, li { font-size: 19px; line-height: 1.5; color: #d1d5db; }
+  .sub { font-size: 24px; color: #ffffff; }
+  .muted { color: #9ca3af; font-size: 16px; }
+  .grid { display: grid; gap: 18px; }
+  .g2 { grid-template-columns: 1fr 1fr; }
+  .g3 { grid-template-columns: repeat(3, 1fr); }
+  .card { background: #10251c; border: 1px solid #1f3b30; border-radius: 12px; padding: 18px 20px; }
+  .card p { font-size: 17px; margin: 6px 0 0; }
+  .kbd { font-family: "DejaVu Sans Mono", monospace; background: #071410; border: 1px solid #1f3b30;
+         border-radius: 8px; padding: 14px 16px; font-size: 16px; color: #a7f3d0; white-space: pre-wrap; }
+  .tag { display: inline-block; background: #123326; border: 1px solid #2f5b47; color: #a7f3d0;
+         border-radius: 999px; padding: 4px 12px; font-size: 15px; margin: 0 6px 6px 0; }
+  .ok { color: #6ee7b7; font-weight: bold; }
+  .warn { color: #fbbf24; }
+  img { width: 100%; border-radius: 10px; border: 1px solid #1f3b30; }
+  .foot { position: absolute; bottom: 22px; left: 64px; right: 64px;
+          display: flex; justify-content: space-between; }
+  ul { margin: 6px 0 0 20px; padding: 0; }
+  li { margin-bottom: 7px; }
+  .num { font-size: 40px; color: #6ee7b7; font-weight: bold; }
+</style>
+</head>
+<body>
+
+<section class="slide">
+  <h1>Blast Radius Zero</h1>
+  <p class="sub">A containment-first agent runtime on Vultr — plan, dispatch, verify.</p>
+  <p class="muted" style="margin-top:8px">lablab.ai × Vultr — Agent Rush Hackathon · Challenge 1: Blast Radius Zero</p>
+  <div class="grid g3" style="margin-top:34px">
+    <div class="card"><h3>Control plane</h3><p>FastAPI + SSE on a Vultr VM. Owns the run loop, the key, the ledger.</p></div>
+    <div class="card"><h3>Inference</h3><p>Vultr Serverless Inference, OpenAI-compatible, model <span class="ok">glm-5.3</span>.</p></div>
+    <div class="card"><h3>Sandbox</h3><p>One fresh gVisor container per step. No network, read-only rootfs, hard caps.</p></div>
+  </div>
+  <div class="grid g2" style="margin-top:26px">
+    <div class="card"><h3>Live demo</h3><p>https://158.247.240.81.sslip.io</p></div>
+    <div class="card"><h3>Source</h3><p>https://github.com/coldall1304/blast-radius-zero</p></div>
+  </div>
+  <div class="foot"><span class="muted">Team: Blast Radius Zero (Solo) · Guowei Lu</span><span class="muted">1 / 8</span></div>
+</section>
+
+<section class="slide">
+  <h2>The problem this build answers</h2>
+  <ul>
+    <li>Agents that "write and run code" are everywhere — but the demo usually hides <span class="warn">where that code ran</span>.</li>
+    <li>Model output is confident prose. Prose is not evidence.</li>
+    <li>"It's sandboxed" is a claim, not a proof — and almost nobody re-tests it after shipping.</li>
+  </ul>
+  <div class="grid g3" style="margin-top:28px">
+    <div class="card"><div class="num">1</div><h3>Execute honestly</h3><p>Real containers, real stdout, real exit codes, real timing.</p></div>
+    <div class="card"><div class="num">2</div><h3>Verify against bytes</h3><p>A second model call audits every claim against recorded evidence.</p></div>
+    <div class="card"><div class="num">3</div><h3>Re-test containment</h3><p>Seven live attacks, same code path as the agent, verdict in the open.</p></div>
+  </div>
+  <div class="foot"><span class="muted">Blast Radius Zero</span><span class="muted">2 / 8</span></div>
+</section>
+
+<section class="slide">
+  <h2>The loop: one JSON action per turn</h2>
+  <div class="kbd">user task
+   │
+   ├─▶ planner (Vultr Serverless Inference)  ── {"action":"run", "code": "…"} ──▶ fresh sandbox container
+   │                                                                                  │
+   │◀────────────── stdout · stderr · exit code · artifacts · duration ◀──────────────┘
+   │
+   ├─▶ verifier audits the answer against that evidence
+   │
+   └─▶ final answer marked verified / unverified  →  SQLite ledger</div>
+  <ul style="margin-top:22px">
+    <li>The program never runs on the host: the control plane is the only thing holding the inference key.</li>
+    <li>A failing step is fed back as stderr, so the model has to fix that exact error on the next turn.</li>
+    <li>Reliability work that mattered: gVisor blocks a forker at the PID cap instead of raising EAGAIN, and a reasoning model can burn its whole token budget on hidden reasoning — both are handled and unit-tested.</li>
+  </ul>
+  <div class="foot"><span class="muted">58 passing tests</span><span class="muted">3 / 8</span></div>
+</section>
+
+<section class="slide">
+  <h2>What the boundary actually enforces</h2>
+  <p class="muted">Values are published by the running service at <span class="kbd" style="display:inline;padding:2px 6px">/api/config</span>, so the UI cannot drift from reality.</p>
+  <div class="grid g2" style="margin-top:18px">
+    <div class="card">
+      <h3>Per step</h3>
+      <ul>
+        <li>Network: <span class="ok">none</span> — no route out of the namespace</li>
+        <li>Root filesystem: <span class="ok">read-only</span>; writes only to <span class="kbd" style="display:inline;padding:1px 5px">/tmp</span> and <span class="kbd" style="display:inline;padding:1px 5px">/out</span></li>
+        <li>User: uid 65534, no capabilities, no-new-privileges</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>Caps on every run</h3>
+      <ul>
+        <li>256 MB memory (no swap), 0.5 CPU</li>
+        <li>64-process cap, 20 s wall-clock watchdog</li>
+        <li>64 MB <span class="kbd" style="display:inline;padding:1px 5px">/out</span> budget, 200 KB output cap</li>
+        <li>Runtime: <span class="ok">gVisor (runsc)</span>, auto-detected</li>
+      </ul>
+    </div>
+  </div>
+  <div class="card" style="margin-top:18px">
+    <h3>Lifecycle discipline</h3>
+    <p>Each container is named, labelled, and removed with <span class="kbd" style="display:inline;padding:1px 5px">docker rm -f</span> on every exit path — success, failure, watchdog kill, or crash. Artifacts are snapshotted per step and served over HTTPS.</p>
+  </div>
+  <div class="foot"><span class="muted">Blast Radius Zero</span><span class="muted">4 / 8</span></div>
+</section>
+
+<section class="slide">
+  <h2>The Containment Lab — seven real attacks</h2>
+  <p class="muted">Run through the exact same sandbox path the agent uses. The kernel's answer, not ours.</p>
+  <div class="grid g2" style="margin-top:14px">
+    <div class="card"><h3>Tamper with the system filesystem</h3><p><span class="ok">contained</span> — EROFS/PermissionError raised by the kernel</p></div>
+    <div class="card"><h3>Fork bomb</h3><p><span class="ok">contained</span> — host process count bounded; flood cut off at the PID cap</p></div>
+    <div class="card"><h3>Infinite loop</h3><p><span class="ok">contained</span> — watchdog kill at the wall-clock limit</p></div>
+    <div class="card"><h3>Phone home</h3><p><span class="ok">contained</span> — no route in the network-none namespace</p></div>
+    <div class="card"><h3>Hunt for credentials</h3><p><span class="ok">contained</span> — no readable secret, no credential env var</p></div>
+    <div class="card"><h3>Memory bomb</h3><p><span class="ok">contained</span> — OOM-killed by the memory cgroup</p></div>
+    <div class="card"><h3>Fill the disk</h3><p><span class="ok">contained</span> — write hit the file-size/disk cap</p></div>
+    <div class="card" style="border-color:#2f5b47;background:#123326"><h3>Result on the deployed instance</h3><p><span class="ok">7 / 7 CONTAINMENT VERIFIED</span></p></div>
+  </div>
+  <div class="foot"><span class="muted">A failing probe would stay visible on the dashboard</span><span class="muted">5 / 8</span></div>
+</section>
+
+<section class="slide">
+  <h2>The Console: programs, output, verdict — side by side</h2>
+  <img src="shot-console.png" alt="console with a verified run">
+  <div class="foot"><span class="muted">Real run: planner + verifier both served by Vultr Serverless Inference</span><span class="muted">6 / 8</span></div>
+</section>
+
+<section class="slide">
+  <h2>The Lab, in the product</h2>
+  <img src="shot-containment-lab.png" alt="containment lab with 7/7 contained">
+  <div class="foot"><span class="muted">Each card carries the kernel evidence line for that attack</span><span class="muted">7 / 8</span></div>
+</section>
+
+<section class="slide">
+  <h2>Evidence and Vultr integration</h2>
+  <div class="grid g2">
+    <div class="card">
+      <h3>Verified on the deployment</h3>
+      <ul>
+        <li>Real-model task run → <span class="ok">verified: true</span></li>
+        <li>Artifacts downloadable over HTTPS</li>
+        <li>Containment suite → <span class="ok">7/7 contained</span></li>
+        <li><span class="ok">58</span> passing tests</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>Vultr, as the platform</h3>
+      <ul>
+        <li>Cloud Compute VM (<span class="kbd" style="display:inline;padding:1px 5px">vc2-1c-1gb</span>, Seoul) created through the Vultr API</li>
+        <li>Serverless Inference (<span class="kbd" style="display:inline;padding:1px 5px">api.vultrinference.com/v1</span>, glm-5.3) for every model call</li>
+        <li>Caddy TLS on the VM; systemd unit; provisioning by script</li>
+      </ul>
+    </div>
+  </div>
+  <div class="grid g2" style="margin-top:18px">
+    <div class="card"><h3>Demo</h3><p>https://158.247.240.81.sslip.io</p></div>
+    <div class="card"><h3>Repository (MIT)</h3><p>https://github.com/coldall1304/blast-radius-zero</p></div>
+  </div>
+  <div class="foot"><span class="muted">Blast Radius Zero · containment-first agent runtime</span><span class="muted">8 / 8</span></div>
+</section>
+
+</body>
+</html>

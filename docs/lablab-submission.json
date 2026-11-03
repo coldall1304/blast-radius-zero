@@ -1,0 +1,23 @@
+{
+  "event": "vultr-hackathon",
+  "team": "blast-radius-zero-solo",
+  "opensAt": "2026-11-03T15:00:00.000Z",
+  "closesAt": "2026-11-08T22:00:00.000Z",
+  "values": {
+    "title": "Blast Radius Zero: sandboxed agent runtime",
+    "shortDescription": "A web agent that plans a task, runs the generated Python in a throwaway gVisor container on a Vultr VM, then has an independent verifier audit every claim against the bytes the sandbox actually produced. A built-in containment lab re-runs seven real attacks and shows the kernel's verdict: 7/7 contained.",
+    "description": "Blast Radius Zero is a containment-first agent runtime, deployed on Vultr.\n\nA user types a task. The planner (Vultr Serverless Inference, glm-5.3) proposes exactly one action per turn and writes a complete Python program for it. That program never runs on the host: it runs in a fresh container created for that single step - no network, read-only root filesystem, unprivileged user, all capabilities dropped, 256 MB of memory, half a CPU, a 64-process cap and a 20-second watchdog. Files written under /out are snapshotted per step and served back over HTTPS as artefacts.\n\nWhen the agent decides it is finished, a second model call audits the answer against the recorded evidence - stdout, exit codes, artefact list. If a concrete claim is not supported, the run is not marked verified. The UI shows the raw program, the raw output and the verdict side by side, and a SQLite ledger keeps the whole audit trail.\n\nThe second half of the app is the Containment Lab: seven real attacks executed through the exact same sandbox path the agent uses - tampering with the system filesystem, a fork bomb, an infinite loop, network egress, credential hunting, a memory bomb and a disk-filling write. It reports what the kernel did, per probe. On the deployed instance all seven are contained, with the kernel's own messages as evidence (EROFS, OOM-kill, no route, watchdog kill).\n\nStack: FastAPI + SSE, Docker with gVisor/runsc, Caddy for TLS, systemd, SQLite, Vultr Cloud Compute and Vultr Serverless Inference. The VM is provisioned and deployed entirely by scripts in the repository.",
+    "submissionType": "ONLINE",
+    "categories": ["Cloud Application", "Developer Tools", "Security"],
+    "technologies": ["VULTR"],
+    "repoLink": "https://github.com/coldall1304/blast-radius-zero",
+    "demoPlatform": "OTHER",
+    "demoUrl": "https://158.247.240.81.sslip.io",
+    "additionalInfo": "Everything in this submission was produced by running the deployed system, not by describing it.\n\nVerified on the live instance (2026-11-03): a real task run finished with verified:true (planner and verifier both served by Vultr Serverless Inference, model glm-5.3) and produced downloadable artefacts; the containment suite reported 7/7 contained with the kernel's own evidence lines; the test suite is 58 tests, all passing.\n\nTwo engineering details worth a reviewer's attention: (1) a reasoning model can spend its entire completion budget on hidden reasoning and return empty content, which silently broke planning until reasoning effort was forwarded and token budgets were sized per role; (2) gVisor blocks a forker at the PID cap instead of returning EAGAIN, so the fork-bomb probe measures host process-count growth rather than trusting the victim's own error message. Both are unit-tested.\n\nThe sandbox executes untrusted, model-written code by design; the app is a public demo, so runs are rate limited per IP and the inference key never leaves the host process. Demo video and a PDF pitch deck are attached; the repository contains the full deployment scripts (Vultr API provisioning, cloud-init bootstrap, systemd unit, Caddy TLS, sandbox image build).",
+    "files": {
+      "imageLink": "docs/cover.png",
+      "videoLink": "app/static/brz-demo.mp4",
+      "presentationLink": "docs/slides.pdf"
+    }
+  }
+}
