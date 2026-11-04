@@ -53,6 +53,11 @@ class Settings:
     sandbox_timeout_s: int = _env_int("SANDBOX_TIMEOUT_S", 20)
     sandbox_output_bytes: int = _env_int("SANDBOX_OUTPUT_BYTES", 200_000)
     sandbox_network: str = _env("SANDBOX_NETWORK", "none")  # none | bridge
+    # docker (default) = one container per step. wasm = Wasmtime + CPython-WASI,
+    # which runs stdlib-only programs: the planner prompt promises numpy/pandas/
+    # matplotlib, and WASI CPython does not ship them, so a `wasm` selection needs
+    # a matching prompt before it is a supported configuration. See docs/backends.md.
+    sandbox_backend: str = _env("SANDBOX_BACKEND", "docker")  # docker | wasm
 
     # --- Agent ---
     max_steps: int = _env_int("MAX_STEPS", 5)

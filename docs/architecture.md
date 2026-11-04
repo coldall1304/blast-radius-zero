@@ -199,6 +199,10 @@ probes were contained and `error` otherwise. `kind` is `task` or `probe`.
 These are documented here because the architecture above describes the *intended* data flow and
 the build does not yet satisfy all of it. Line references are to the current tree.
 
+**All seven are resolved in the current tree** — the table records the state at the moment each gap
+was found, and the status block under it records the fix and its evidence. Do not read the "Impact"
+column as a description of today's behaviour.
+
 | # | Gap | Impact | Fix |
 |---|---|---|---|
 | G1 | `docker run` argv lacks `-i` (`app/sandbox.py:144`) while code is written to stdin | **No program ever executes**; every step returns exit 0 with empty output; Lab reports 0/7 | add `--interactive` |
@@ -209,4 +213,19 @@ the build does not yet satisfy all of it. Line references are to the current tre
 | G6 | *resolved*: a hand-built `brz-sandbox:1` predated `sandbox/Dockerfile` and lacked matplotlib, while the planner prompt promises it (`app/agent.py:34`) | plots failed with `ModuleNotFoundError` | always build via `deploy/build-sandbox.sh`; verified `numpy 2.5.4 / pandas 3.1.0 / matplotlib 3.11.2` |
 | G7 | `docker rm -f` is not in a `try/finally` (`app/sandbox.py:239-240`) | an inspect/kill subprocess timeout can leave a container behind | wrap the post-run block in `finally` |
 
-G1 and G2 are the two that block an honest containment demo.
+### Status of G1–G7 in the current tree
+
+Verified by inspection of the tree and by running the suite:
+
+| # | Status | Evidence |
+|---|---|---|
+| G1 | **fixed** | `app/sandbox.py:153` passes `-i` to `docker run`; programs now execute and produce output |
+| G2 | **fixed** | `app/redteam.py` no longer reads `/proc/1/environ`; the probe no longer self-reports as breached |
+| G3 | **fixed** | `app/agent.py:256` calls `db.add_step(run_id, step)`; `GET /api/runs/{id}` returns populated `steps` |
+| G4 | **fixed** | `app/static/app.js:223` builds `/api/runs/{id}/artifacts/step-{n}/{name}`, matching the on-disk layout |
+| G5 | **fixed** | `app/main.py:171-180` maps inference and sandbox failures to `status = "error"` |
+| G6 | **fixed** | the image is built by `deploy/build-sandbox.sh`, which asserts `numpy 2.5.4 / pandas 3.1.0 / matplotlib 3.11.2` |
+| G7 | **fixed** | the post-run teardown including `docker rm -f` sits in a `finally` block (`app/sandbox.py:256`) |
+
+`make lab` reports **7/7 attacks blocked** on the local Docker daemon, and CI enforces that gate on
+every push (`.github/workflows/ci.yml`, job `containment`).

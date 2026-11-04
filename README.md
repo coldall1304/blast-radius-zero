@@ -4,6 +4,8 @@
 
 Submission for lablab.ai × Vultr **Agent Rush Hackathon — Challenge 1: Blast Radius Zero**.
 
+[![CI](https://github.com/coldall1304/blast-radius-zero/actions/workflows/ci.yml/badge.svg)](https://github.com/coldall1304/blast-radius-zero/actions/workflows/ci.yml) — every push re-runs the unit suite, the integration suite and the seven-probe containment gate, and the build fails if any probe escapes.
+
 | | |
 |---|---|
 | **Live demo** | https://158.247.240.81.sslip.io |
@@ -12,9 +14,21 @@ Submission for lablab.ai × Vultr **Agent Rush Hackathon — Challenge 1: Blast 
 | **Architecture** | `docs/architecture.md` · **Security model** `docs/security.md` |
 | **Submission package** | `docs/submission.md` (field values, verified evidence) |
 
-The live instance is a `vc2-1c-1gb` Vultr VM in Seoul, provisioned by `deploy/vultr_provision.py`
-and deployed by `deploy/install.sh`. The planner and the verifier both call **Vultr Serverless
-Inference** (`glm-5.3`).
+## Built on Vultr
+
+Everything the live demo runs on is Vultr: one Cloud Compute instance and one model API.
+
+| | |
+|---|---|
+| **Compute** | `vc2-1c-1gb` in the Seoul region, provisioned by [`deploy/vultr_provision.py`](deploy/vultr_provision.py) and deployed by [`deploy/install.sh`](deploy/install.sh). The control plane, the Docker daemon and every per-step sandbox container share that one instance. |
+| **Inference** | the planner and the verifier both call **Vultr Serverless Inference** (`glm-5.3`) over the OpenAI-compatible `POST /chat/completions`. No other model provider is used. |
+| **Isolation** | sandbox steps run under gVisor (`runsc`) on that instance, so model-written Python meets a user-space kernel rather than the host's. `SANDBOX_RUNTIME=auto` falls back to `runc` where gVisor is not installed, and `/api/config` reports which one is live. |
+
+The project is an entry in the lablab.ai × Vultr **Agent Rush** hackathon. This section is the
+attribution Vultr's [Open Source Credits](https://discover.vultr.com/open-source-credits) program
+asks for: [**vultr.com**](https://www.vultr.com/). It is text and link only — no Vultr logo asset is
+bundled, because no official, re-distributable image file could be verified from Vultr's brand page
+at the time of writing.
 
 ![Console: the planner's program, the sandbox's real output, and the verifier's verdict](docs/shot-console.png)
 *Console — the program the planner wrote, the bytes the sandbox produced, and the verifier's verdict, side by side.*
@@ -64,6 +78,12 @@ box around it is measurable. Four properties make this a product:
 
 ## 3. Architecture
 
+![Architecture: browser to FastAPI control plane, which holds the inference key and the Docker socket and branches to Vultr Serverless Inference and to one disposable container per step; container output lands in a SQLite ledger](docs/architecture-diagram.svg)
+
+*The ASCII figure below, drawn: the two dashed bounds are the trust boundaries, and the control plane
+is labelled the weakest link because it holds both `INFERENCE_API_KEY` and `/var/run/docker.sock`.
+Source: [`docs/architecture-diagram.svg`](docs/architecture-diagram.svg).*
+
 ```
           browser
       ┌──────────────┐
@@ -112,6 +132,40 @@ Trust boundaries, in order of importance:
 
 ## 4. Quick start
 
+### Run the whole stack locally — one command
+
+`make demo` brings up the same three pieces — control plane, Docker-daemon-driven sandbox, SQLite
+ledger — on one machine, with `MOCK_INFERENCE=1`, so it needs no API key and no cloud account:
+
+```bash
+git clone <your-repo-url> brz && cd brz
+make demo          # compose up: brz-sandbox:1 + control plane, then wait for /api/health
+open http://127.0.0.1:8000
+make verify        # image -> unit tests -> integration tests -> the 7-probe Lab
+make down
+```
+
+| Target | What it does |
+|---|---|
+| `make demo` | builds `brz-sandbox:1` if missing, starts the stack, prints `/api/config` |
+| `make verify` | the "verify it yourself" chain: sandbox image, unit tests, integration tests, containment lab |
+| `make lab` | the seven probes, in-process, against the local Docker daemon |
+| `make test` / `make test-all` | unit tests only / the full pytest suite, integration included |
+| `make clean` | stack down, ledger and artifacts removed |
+
+Requires Docker with the Compose v2 plugin, nothing else. This path is a local-dev convenience, not
+the deployment: [`docker-compose.yml`](docker-compose.yml) mounts the Docker socket into the control
+plane, which is root-equivalent on the host — the boundary in
+[`docs/security.md`](docs/security.md) §4, and the reason that mount carries a warning comment.
+
+Without Compose, run the app straight from a venv:
+
+```bash
+python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt
+./deploy/build-sandbox.sh            # builds + smoke-tests brz-sandbox:1
+MOCK_INFERENCE=1 uvicorn app.main:app --port 8000
+```
+
 ### Step 1 — install on a Vultr VM (one command)
 
 Ubuntu 24.04 x64, 2 vCPU / 4 GB minimum. `deploy/install.sh` is idempotent: it installs Docker,
@@ -127,14 +181,6 @@ sudo BRZ_DOMAIN="$(curl -s https://api.ipify.org).sslip.io" ./deploy/install.sh
 
 The app binds `127.0.0.1:8000` only; Caddy publishes 80/443. Open 22 (your IP), 80 and 443 in the
 Vultr firewall, never 8000. Full host notes: [`deploy/README.md`](deploy/README.md).
-
-**Local development instead** (no systemd, no Caddy):
-
-```bash
-python3 -m venv .venv && . .venv/bin/activate
-pip install -r requirements.txt
-./deploy/build-sandbox.sh            # builds + smoke-tests brz-sandbox:1
-```
 
 ### Step 2 — configure the key
 
@@ -253,13 +299,16 @@ blast-radius-zero/
 │   ├── brz.service      systemd unit, 127.0.0.1:8000, sandboxed
 │   ├── Caddyfile        TLS, SSE-safe reverse proxy, security headers
 │   └── README.md        deployment runbook (instance size, rollback)
-├── tests/               pytest: unit + Docker-marked integration (51 tests)
+├── tests/               pytest: unit + Docker-marked integration (68 tests)
+├── Makefile             local workflow: demo, verify, lab, test, clean
+├── docker-compose.yml   one-command local stack (socket mount is local-dev only)
 ├── requirements.txt     pinned runtime dependencies
 ├── .env.example         every knob, commented, safe defaults
 ├── pytest.ini           markers, asyncio mode
 ├── data/                SQLite + artifacts at runtime (not committed)
 └── docs/
     ├── architecture.md  request lifecycle, boundaries, failure modes
+    ├── architecture-diagram.svg  the diagram above, hand-written, no external deps
     ├── security.md      threat model and residual risk
     └── submission.md    checklist + demo video script
 ```
@@ -273,13 +322,18 @@ Inference** (`glm-5.3`).
 
 | Check | Result |
 |---|---|
-| `.venv/bin/python -m pytest -q` | ✅ `58 passed` |
+| `.venv/bin/python -m pytest -q` | ✅ `58 passed` on 2026-11-03; **`68 passed`** now (the 10 tests in `tests/test_wasm_sandbox.py` were added on 2026-11-04) |
 | Containment suite (live kernel behaviour, on the deployment) | ✅ **7/7 contained** — EROFS, host-PID bound under a fork flood, 10.2 s watchdog kill, `network=none`, no secrets, OOM kill, fsize/disk cap |
 | Task dispatch end-to-end (real model, Vultr Serverless Inference) | ✅ `verified: true`, 2–3 steps, artifacts `walk.json` + `walk.png` downloadable over HTTPS |
 | Artifact download | ✅ `HTTP 200`, `image/png` and `text/plain` round-trip |
 | Container cleanup | ✅ zero `brz-*` containers left after runs and suites |
 | SSE replay + live `step.log` streaming | ✅ |
 | Demo uptime | ✅ `/api/health` 200, TLS valid to 2027-02-01, health-probe timer restarts the unit if it stops answering |
+
+Re-verified on 2026-11-04 through the local `make demo` path (Docker 29.1.3, **`runc` only** — that
+host has no gVisor): `/api/health` returned 200, a `MOCK_INFERENCE=1` task run finished `done` with a
+step written to the ledger, and the same seven probes reported **7/7 contained**. This is evidence
+for the weaker runtime; the rows above were taken on the deployment with `runsc`.
 
 Defects found by running the system during this build, and their resolution:
 

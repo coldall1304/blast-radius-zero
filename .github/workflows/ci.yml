@@ -1,0 +1,246 @@
+name: CI
+
+# Runs on every push to the default branch and on every pull request. The
+# containment job is the gate that matters: it fails unless all seven
+# adversarial probes are actually blocked by the kernel.
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+# One in-flight run per ref. A new push cancels the previous run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  PYTHONUNBUFFERED: "1"
+  SANDBOX_IMAGE: brz-sandbox:1
+
+jobs:
+  unit:
+    name: unit tests (no docker)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Create venv and install project + test deps
+        run: |
+          set -euo pipefail
+          python -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/python -m pip install -r requirements.txt
+          .venv/bin/python -m pip install pytest pytest-asyncio
+
+      # `-m 'not integration'` drops the docker-marked tests (tests/test_sandbox.py).
+      # tests/test_api.py carries no marker but drives the real sandbox through the
+      # ASGI app, so it is docker-dependent too and belongs to the integration job.
+      - name: Run unit tests
+        id: tests
+        run: |
+          set -euo pipefail
+          .venv/bin/python -m pytest -m 'not integration' --ignore=tests/test_api.py -q
+
+      - name: Report verdict
+        if: always()
+        run: |
+          if [ "${{ steps.tests.outcome }}" = "success" ]; then
+            echo "### unit tests: PASS" >> "$GITHUB_STEP_SUMMARY"
+            echo "unit tests: PASS"
+          else
+            echo "### unit tests: FAIL (${{ steps.tests.outcome }})" >> "$GITHUB_STEP_SUMMARY"
+            echo "unit tests: FAIL (${{ steps.tests.outcome }})"
+          fi
+
+  sandbox-image:
+    name: build sandbox image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      # GitHub-hosted Ubuntu runners ship Docker; nothing is installed here.
+      - name: Confirm Docker daemon
+        run: |
+          set -euo pipefail
+          docker version
+          docker info --format 'server={{.ServerVersion}} driver={{.Driver}} runtimes={{json .Runtimes}}'
+
+      # The repo's own script builds the image and then smoke-tests it under the
+      # exact flags the control plane uses, asserting the pinned numpy/pandas/
+      # matplotlib versions. Its logic is reused, not duplicated.
+      - name: Build and smoke-test the image
+        run: |
+          set -euo pipefail
+          bash deploy/build-sandbox.sh
+
+      - name: Report image size and interpreter surface
+        run: |
+          set -euo pipefail
+          image="${SANDBOX_IMAGE}"
+          size_bytes="$(docker image inspect --format '{{.Size}}' "$image")"
+          size_mb="$((size_bytes / 1024 / 1024))"
+          echo "image: ${image}"
+          echo "size: ${size_mb} MB (${size_bytes} bytes)"
+          echo "user: $(docker image inspect --format '{{.Config.User}}' "$image")"
+          echo "workdir: $(docker image inspect --format '{{.Config.WorkingDir}}' "$image")"
+
+          surface="$(docker run --rm \
+            --network none --read-only --user 65534:65534 \
+            --cap-drop ALL --security-opt no-new-privileges:true \
+            --tmpfs /tmp:rw,noexec,nosuid,nodev,size=16m \
+            "$image" python -c 'import sys, numpy, pandas, matplotlib
+          print("python", sys.version.split()[0])
+          print("numpy", numpy.__version__)
+          print("pandas", pandas.__version__)
+          print("matplotlib", matplotlib.__version__)')"
+          echo "$surface"
+
+          {
+            echo "### sandbox image: ${size_mb} MB"
+            echo ""
+            echo '```'
+            echo "$surface"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Every later job runs on a fresh runner, so the image travels as an artifact.
+      - name: Export image for downstream jobs
+        run: |
+          set -euo pipefail
+          docker save "$SANDBOX_IMAGE" | gzip -1 > brz-sandbox.tar.gz
+          ls -l brz-sandbox.tar.gz
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: brz-sandbox-image
+          path: brz-sandbox.tar.gz
+          compression-level: 0
+          retention-days: 1
+
+  integration:
+    name: integration tests (real docker)
+    runs-on: ubuntu-24.04
+    needs: sandbox-image
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: brz-sandbox-image
+          path: .
+
+      - name: Load the sandbox image
+        run: |
+          set -euo pipefail
+          gunzip -c brz-sandbox.tar.gz | docker load
+          docker image inspect --format 'loaded {{.Id}}' "$SANDBOX_IMAGE"
+
+      - name: Create venv and install project + test deps
+        run: |
+          set -euo pipefail
+          python -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/python -m pip install -r requirements.txt
+          .venv/bin/python -m pip install pytest pytest-asyncio
+
+      - name: Run integration-marked tests
+        run: |
+          set -euo pipefail
+          .venv/bin/python -m pytest -m integration -q
+
+      # The control-plane lifecycle test needs a container per step as well.
+      - name: Run control-plane lifecycle tests
+        run: |
+          set -euo pipefail
+          .venv/bin/python -m pytest tests/test_api.py -q
+
+  containment:
+    name: containment lab (7 probes)
+    runs-on: ubuntu-24.04
+    needs: sandbox-image
+    timeout-minutes: 20
+    env:
+      MOCK_INFERENCE: "1"
+      RUNS_PER_HOUR: "1000"
+      PROBES_PER_HOUR: "1000"
+      DATA_DIR: ${{ github.workspace }}/.ci-data
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: brz-sandbox-image
+          path: .
+
+      - name: Load the sandbox image
+        run: |
+          set -euo pipefail
+          gunzip -c brz-sandbox.tar.gz | docker load
+          docker image inspect --format 'loaded {{.Id}}' "$SANDBOX_IMAGE"
+
+      - name: Create venv and install app deps
+        run: |
+          set -euo pipefail
+          python -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/python -m pip install -r requirements.txt
+
+      # No API key is involved: MOCK_INFERENCE=1 replaces the model calls with a
+      # deterministic two-step plan. The probes themselves are real programs run
+      # through app.sandbox, i.e. the same docker argv the agent uses.
+      - name: Start control plane and run the 7-probe suite
+        id: suite
+        run: |
+          set -uo pipefail
+          .venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 \
+            --log-level info > uvicorn.log 2>&1 &
+          app_pid=$!
+
+          status=0
+          .venv/bin/python .github/scripts/containment_suite.py \
+            --base-url http://127.0.0.1:8000 \
+            --out containment-report.json || status=$?
+
+          kill "$app_pid" 2>/dev/null || true
+          wait "$app_pid" 2>/dev/null || true
+
+          echo "--- control plane log (tail) ---"
+          tail -n 40 uvicorn.log || true
+          exit "$status"
+
+      - name: Upload containment evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: containment-evidence
+          path: |
+            containment-report.json
+            uvicorn.log
+            .ci-data/brz.sqlite3
+            .ci-data/brz.sqlite3-wal
+          if-no-files-found: warn
+          retention-days: 7

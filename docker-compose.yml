@@ -1,0 +1,124 @@
+# Blast Radius Zero — local, one-command stack.
+#
+# This file exists so a reviewer can run the whole system on a laptop with no
+# Vultr account and no API key:
+#
+#     make demo        # docker compose up, MOCK_INFERENCE=1, then a health probe
+#     open http://127.0.0.1:8000
+#     make down
+#
+# It mirrors the deployed topology on a Vultr VM (deploy/install.sh): one
+# FastAPI control plane, one external Docker daemon that creates a disposable
+# container per step, one SQLite ledger. Only the network exposure differs:
+# the API binds 127.0.0.1 here, Caddy fronts it on the VM.
+#
+# Scope: local development and judging. It is NOT the production deployment —
+# see docs/security.md before exposing any of this to a network.
+name: brz
+
+services:
+  # Builds the sandbox image once, so `docker compose up` alone is enough even
+  # without `make sandbox`. `make sandbox` (deploy/build-sandbox.sh) is still
+  # preferred: it also smoke-tests the image under the real containment flags.
+  sandbox-image:
+    build:
+      context: ./sandbox
+      dockerfile: Dockerfile
+    image: brz-sandbox:1
+    entrypoint: ["python", "-c", "print('brz-sandbox:1 ready')"]
+    restart: "no"
+    network_mode: none
+
+  control-plane:
+    image: python:3.12-slim
+    working_dir: /app
+    # The pinned runtime deps are installed on first start (a few seconds with
+    # the pip cache volume warm) instead of baked into a separate image, so the
+    # stack stays a single file with no extra Dockerfile to maintain.
+    command:
+      - sh
+      - -c
+      - |
+        set -eu
+        pip install --no-cache-dir --quiet -r requirements.txt
+        exec uvicorn app.main:app --host 0.0.0.0 --port 8000
+    depends_on:
+      sandbox-image:
+        condition: service_completed_successfully
+    environment:
+      # No key required: the deterministic two-step plan exercises the sandbox,
+      # the SSE stream and the ledger. Set MOCK_INFERENCE=0 and INFERENCE_API_KEY
+      # to call Vultr Serverless Inference for real.
+      MOCK_INFERENCE: "${MOCK_INFERENCE:-1}"
+      INFERENCE_API_KEY: "${INFERENCE_API_KEY:-}"
+      INFERENCE_BASE_URL: "${INFERENCE_BASE_URL:-https://api.vultrinference.com/v1}"
+      INFERENCE_MODEL: "${INFERENCE_MODEL:-glm-5.3}"
+      # auto = gVisor (runsc) when the daemon has it, otherwise runc.
+      SANDBOX_RUNTIME: "${SANDBOX_RUNTIME:-auto}"
+      SANDBOX_IMAGE: "brz-sandbox:1"
+      # Must be the SAME absolute path as the host bind below: sandbox.execute()
+      # passes this path to the host daemon as a bind source for /out, and the
+      # daemon resolves it on the host, not inside this container.
+      DATA_DIR: "${PWD}/data"
+      PYTHONUNBUFFERED: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+      PIP_CACHE_DIR: /pip-cache
+    ports:
+      - "${BRZ_BIND:-127.0.0.1}:${BRZ_PORT:-8000}:8000"
+    volumes:
+      # Source tree, read-only. The app never writes next to its own code:
+      # SQLite and artifacts live under DATA_DIR, below.
+      - .:/app:ro
+      # Ledger + artifacts, at an identical path inside and outside the
+      # container. See the DATA_DIR comment above; changing one side breaks the
+      # per-step /out bind mount. The process runs as root here, so files under
+      # ./data end up root-owned on the host: `make clean` removes them from a
+      # throwaway container, or use `sudo chown -R $(id -u):$(id -g) data` if you
+      # switch to the venv path in README §4.
+      - "${PWD}/data:${PWD}/data"
+      - pip-cache:/pip-cache
+
+      # =====================================================================
+      # DANGER — THE NEXT TWO MOUNTS ARE ROOT-EQUIVALENT ON THIS HOST.
+      #
+      # The control plane shells out to the `docker` CLI (app/sandbox.py), so it
+      # needs the daemon socket: anyone who can drive the daemon can start a
+      # privileged container with / mounted and own the machine. That is not a
+      # sandbox property — it is the trust boundary the whole design is built
+      # around, and gVisor hardens the sandbox, not the control plane.
+      #
+      # Concretely: process in this container == root on your machine.
+      # This pairing is a LOCAL-DEV-ONLY convenience so the stack runs with one
+      # command. Do not deploy this compose file to a shared or public host.
+      # See docs/security.md §4 ("The real trust boundary: Docker socket") and
+      # the mitigation path listed there: rootless Docker, a socket proxy
+      # limited to run/rm/inspect/kill, or a separate executor host.
+      # =====================================================================
+      - /var/run/docker.sock:/var/run/docker.sock
+      # The host's docker CLI binary, so the container has the same client the
+      # app expects. Override BRZ_DOCKER_BIN if yours lives elsewhere.
+      - "${BRZ_DOCKER_BIN:-/usr/bin/docker}:/usr/local/bin/docker:ro"
+    init: true
+    restart: unless-stopped
+    healthcheck:
+      # python:3.12-slim has no curl; the stdlib is always there.
+      test:
+        - CMD
+        - python
+        - -c
+        - |
+          import sys, urllib.request
+          try:
+              r = urllib.request.urlopen("http://127.0.0.1:8000/api/health", timeout=5)
+              sys.exit(0 if r.status == 200 else 1)
+          except Exception as exc:
+              print("healthcheck failed:", exc)
+              sys.exit(1)
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      # First start installs the Python deps, so allow a generous ramp-up.
+      start_period: 120s
+
+volumes:
+  pip-cache:

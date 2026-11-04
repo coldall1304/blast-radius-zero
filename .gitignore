@@ -20,3 +20,8 @@ __pycache__/
 
 # scratch
 *.log
+
+# sponsor / grant application drafts — contain personal contact details and
+# account balance figures; keep them out of this public repository
+docs/oss-credits-application.md
+docs/oss-credits-email.md

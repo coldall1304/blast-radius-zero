@@ -211,7 +211,15 @@ evidence that matters, and the judge is a one-line fix — see `docs/architectur
 - We do not claim the verifier proves truth; it flags unsupported claims.
 - We do not claim the ledger is tamper-evident.
 - We do not claim the API is safe to expose with real data behind it.
-- We do not claim the containment suite has passed on the current build: as shipped, a missing
-  `-i` on `docker run` means no probe program executes and the suite reports 0/7. With that flag
-  added in a scratch copy, the suite reports 6/7 (the seventh being the `secret_read` judge bug).
-  Record the demo only after both are fixed.
+- We do not claim the containment probe suite is an audit of Docker, gVisor or the seccomp profile.
+  It tests containment of *behaviour* — seven specific programs — on the same code path the agent
+  uses, and a pass means those seven were stopped, not that the mechanism is unexploitable.
+
+*Historical note, kept because the earlier number is still quoted elsewhere.* An earlier build of
+this tree reported **0/7**: `docker run` lacked `-i` while the program was written to stdin, so no
+probe program ever executed and every step returned exit 0 with empty output. With that flag added
+in a scratch copy the suite reported **6/7**, the seventh being a `secret_read` judge bug — the
+probe listed `/proc/1/environ`, and the probe *is* PID 1, so it always reported itself as breached.
+Both are fixed in the current tree: `app/sandbox.py:153` carries `-i`, and the probe no longer reads
+that path. The suite now reports **7/7 blocked** on the local Docker daemon. Reproduce it with
+`make lab`, which drives the same code path as `POST /api/containment/runs`.

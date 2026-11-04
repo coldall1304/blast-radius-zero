@@ -32,6 +32,30 @@ class SandboxError(RuntimeError):
     pass
 
 
+def backend_execute() -> Callable[..., dict]:
+    """Return the ``execute`` callable for the configured backend.
+
+    ``docker`` (the default) is this module's own implementation, returned as-is
+    so the default path is byte-for-byte what it always was. ``wasm`` lazily
+    imports :mod:`app.wasm_sandbox` — lazily because a Docker-only deployment
+    should not need Wasmtime or a CPython-WASI build on disk — and translates its
+    ``WasmSandboxUnavailable`` into :class:`SandboxError` so callers keep exactly
+    one failure type to handle.
+    """
+    if settings.sandbox_backend != "wasm":
+        return execute
+
+    from . import wasm_sandbox
+
+    def _execute(*args: object, **kwargs: object) -> dict:
+        try:
+            return wasm_sandbox.execute(*args, **kwargs)
+        except wasm_sandbox.WasmSandboxUnavailable as exc:
+            raise SandboxError(f"wasm backend unavailable: {exc}") from exc
+
+    return _execute
+
+
 _runtime_lock = threading.Lock()
 _runtime_cache: tuple[str, bool] | None = None
 

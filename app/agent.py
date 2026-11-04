@@ -234,7 +234,7 @@ async def run_task(run_id: str, task: str, publish: Callable[[dict[str, Any]], N
 
         try:
             result = await asyncio.to_thread(
-                sandbox.execute, run_id, step_no, code, on_line
+                sandbox.backend_execute(), run_id, step_no, code, on_line
             )
         except sandbox.SandboxError as exc:
             publish({"type": "run.error", "message": str(exc)})

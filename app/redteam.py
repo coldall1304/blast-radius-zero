@@ -188,7 +188,7 @@ async def run_suite(run_id: str, publish: Callable[[dict[str, Any]], None]) -> d
         started = time.monotonic()
         try:
             result = await asyncio.to_thread(
-                sandbox.execute, f"{run_id}-p{idx}", 1, probe["code"], None, 10
+                sandbox.backend_execute(), f"{run_id}-p{idx}", 1, probe["code"], None, 10
             )
             blocked, evidence = _judge(probe["id"], result)
         except Exception as exc:  # sandbox itself failed
