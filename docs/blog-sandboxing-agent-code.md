@@ -122,7 +122,8 @@ run` while the program is fed on stdin, so no probe executed and the suite repor
 looked breached because nothing ran. A scratch copy with the flag reported 6/7, the seventh being the
 `secret_read` judge reading `/proc/1/environ` when the probe itself is PID 1. Both are fixed in the
 tree, and `README.md` §9 and `docs/submission.md` record 7/7 on the deployed instance on 2026-11-03.
-`docs/security.md` §6 still carries the pre-fix note; it is older than the code.
+`docs/security.md` §6 and `docs/architecture.md` §7 have since been updated to record both fixes and
+the evidence for them, so the docs no longer contradict the code.
 
 ## gVisor is a smaller surface, not a solution
 
@@ -212,8 +213,8 @@ Sources for every factual claim
 - 0/7 early build, 6/7 with `-i` added, secret_read /proc/1/environ self-flag: docs/security.md §5
   and §6. Both defects are now fixed in the tree (app/sandbox.py:153 has "-i"; the probe no longer
   reads /proc/1/environ), so those notes are pre-fix.
-- 7/7 on the deployment 2026-11-03, 58 tests, runsc runtime, TLS to 2027-02-01: README.md §9,
-  docs/submission.md §3.
+- 7/7 on the deployment 2026-11-03, 68 tests (58 at the time of that entry), runsc runtime, TLS to
+  2027-02-01: README.md §9, docs/submission.md §3.
 - Docker socket as root-equivalent, accepted risks, hardening order: docs/security.md §4.
 - Unauthenticated GET /api/runs returning other visitors' data: docs/security.md §3.3.
 - Live deployment facts (vc2-1c-1gb, Seoul, sslip.io URL, glm-5.3): README.md intro,
