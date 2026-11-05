@@ -213,7 +213,7 @@ Sources for every factual claim
 - 0/7 early build, 6/7 with `-i` added, secret_read /proc/1/environ self-flag: docs/security.md §5
   and §6. Both defects are now fixed in the tree (app/sandbox.py:153 has "-i"; the probe no longer
   reads /proc/1/environ), so those notes are pre-fix.
-- 7/7 on the deployment 2026-11-03, 68 tests (58 at the time of that entry), runsc runtime, TLS to
+- 7/7 on the deployment 2026-11-03, 70 tests (58 at the time of that entry), runsc runtime, TLS to
   2027-02-01: README.md §9, docs/submission.md §3.
 - Docker socket as root-equivalent, accepted risks, hardening order: docs/security.md §4.
 - Unauthenticated GET /api/runs returning other visitors' data: docs/security.md §3.3.

@@ -85,7 +85,9 @@ def _sse(event: dict[str, Any]) -> str:
 
 
 class TaskIn(BaseModel):
-    task: str = Field(min_length=3, max_length=4000)
+    # Bound comes from settings so MAX_TASK_CHARS actually takes effect; the
+    # literal 4000 here silently ignored the env var.
+    task: str = Field(min_length=3)
 
 
 bus: Bus | None = None
@@ -156,6 +158,10 @@ async def create_run(payload: TaskIn, request: Request) -> dict[str, str]:
     assert bus and task_sem
     _check_rate(_client_ip(request), "task", settings.runs_per_hour)
     task = payload.task.strip()
+    if len(task) > settings.max_task_chars:
+        raise HTTPException(status_code=422, detail=(
+            f"task is {len(task)} characters; the limit is {settings.max_task_chars} "
+            f"(set MAX_TASK_CHARS to change it)"))
     run_id = f"r-{uuid.uuid4().hex[:10]}"
     db.create_run(run_id, task, "task", settings.inference_model, settings.mock_inference)
     bus.publish(run_id, {"type": "run.started", "run_id": run_id, "task": task,
@@ -171,6 +177,10 @@ async def create_run(payload: TaskIn, request: Request) -> dict[str, str]:
                 if final.get("error"):
                     status = "error"
                 elif final.get("verified") is False:
+                    status = "unverified"
+                elif final.get("verified") is None:
+                    # The verifier could not run (inference outage, bad JSON).
+                    # An unaudited answer must not be reported as a clean "done".
                     status = "unverified"
                 else:
                     status = "done"
