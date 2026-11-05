@@ -77,16 +77,24 @@ def init() -> None:
             CREATE INDEX IF NOT EXISTS idx_probes_run ON probes(run_id);
             """
         )
+        # Owner column, added after the fact so existing ledgers keep working.
+        # Rows created before this migration have owner NULL and are treated as
+        # legacy public rows (readable, never matched to a visitor's session).
+        cols = {row["name"] for row in c.execute("PRAGMA table_info(runs)").fetchall()}
+        if "owner" not in cols:
+            c.execute("ALTER TABLE runs ADD COLUMN owner TEXT")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_runs_owner ON runs(owner)")
         c.commit()
 
 
 def create_run(run_id: str, task: str, kind: str = "task", model: str = "",
-               mock: bool = False) -> None:
+               mock: bool = False, owner: str | None = None) -> None:
     with _lock:
         c = _connect()
         c.execute(
-            "INSERT INTO runs (id, kind, task, status, model, mock, started_at) VALUES (?,?,?,?,?,?,?)",
-            (run_id, kind, task, "queued", model, int(mock), time.time()),
+            "INSERT INTO runs (id, kind, task, status, model, mock, started_at, owner)"
+            " VALUES (?,?,?,?,?,?,?,?)",
+            (run_id, kind, task, "queued", model, int(mock), time.time(), owner),
         )
         c.commit()
 
@@ -139,11 +147,23 @@ def add_probe(run_id: str, row: dict[str, Any]) -> None:
         c.commit()
 
 
-def get_run(run_id: str) -> dict[str, Any] | None:
+_UNSCOPED = object()  # sentinel: "do not check ownership" (internal callers only)
+
+
+def get_run(run_id: str, owner: str | None = _UNSCOPED) -> dict[str, Any] | None:  # type: ignore[assignment]
+    """Fetch one run.
+
+    ``owner`` defaults to *unscoped* for internal callers (workers, tests that
+    assert on the ledger). Passing an explicit value — including ``None`` for a
+    request with no session cookie — enforces the match, so an anonymous caller
+    cannot read a run that belongs to somebody else.
+    """
     with _lock:
         c = _connect()
         row = c.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
         if row is None:
+            return None
+        if owner is not _UNSCOPED and row["owner"] != owner:
             return None
         run = dict(row)
         run["mock"] = bool(run["mock"])
@@ -168,16 +188,35 @@ def get_run(run_id: str) -> dict[str, Any] | None:
         return run
 
 
-def list_runs(limit: int = 25) -> list[dict[str, Any]]:
+def list_runs(limit: int = 25, owner: str | None = _UNSCOPED) -> list[dict[str, Any]]:  # type: ignore[assignment]
+    """Newest runs first.
+
+    ``owner`` defaults to *unscoped* for internal callers. An explicit value
+    filters to that visitor; an explicit ``None`` (a request with no cookie)
+    matches nothing, so an anonymous caller gets no rows at all.
+
+    Rows written before the owner column existed have ``owner = NULL``. They were
+    created while the API was public, so their task text belongs to whoever typed
+    it, not to any visitor asking now — an owned listing never includes them.
+    """
     with _lock:
         c = _connect()
-        rows = c.execute(
-            """SELECT r.id, r.kind, r.task, r.status, r.model, r.mock, r.started_at,
-                      r.finished_at, r.answer, r.verified,
-                      (SELECT COUNT(*) FROM steps s WHERE s.run_id=r.id) AS step_count
-               FROM runs r ORDER BY r.started_at DESC LIMIT ?""",
-            (limit,),
-        ).fetchall()
+        if owner is _UNSCOPED:
+            rows = c.execute(
+                """SELECT r.id, r.kind, r.task, r.status, r.model, r.mock, r.started_at,
+                          r.finished_at, r.answer, r.verified,
+                          (SELECT COUNT(*) FROM steps s WHERE s.run_id=r.id) AS step_count
+                   FROM runs r ORDER BY r.started_at DESC LIMIT ?""",
+                (limit,),
+            ).fetchall()
+        else:
+            rows = c.execute(
+                """SELECT r.id, r.kind, r.task, r.status, r.model, r.mock, r.started_at,
+                          r.finished_at, r.answer, r.verified,
+                          (SELECT COUNT(*) FROM steps s WHERE s.run_id=r.id) AS step_count
+                   FROM runs r WHERE r.owner = ? ORDER BY r.started_at DESC LIMIT ?""",
+                (owner, limit),
+            ).fetchall()
         out = []
         for row in rows:
             d = dict(row)

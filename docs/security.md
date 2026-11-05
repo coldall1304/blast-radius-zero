@@ -83,11 +83,14 @@ The `verified` flag means "not contradicted by recorded evidence", not "true".
 | Environment variables | No secrets are injected; only non-secret knobs (`app/sandbox.py:161`) |
 | Host files | Only `/out` is mounted; no `/etc`, no `~`, no `.env`, no Docker socket inside the container |
 | Artifacts out of the box | Possible by design — files under `/out` are served back to the browser. They are bounded (64 MB, 25 entries) and belong to the run that made them |
-| Cross-run leakage via the API | **Open** — see §3.3: `GET /api/runs` and `/api/runs/{id}` are unauthenticated and return other visitors' tasks and answers |
+| Cross-run leakage via the API | **Scoped** — each browser gets an opaque `brz_sid` cookie (HttpOnly, SameSite=lax) at its first dispatch, and every read path (`/api/runs`, `/api/runs/{id}`, `/events`, `/artifacts/...`) filters by it. A request with no cookie sees nothing; a run id belonging to another session answers `404`, not `403`, so the endpoint does not confirm the row exists. Verified with two independent cookie jars against a running instance. |
 
 *Residual:* if a task contains sensitive input (pasted data, a CSV), that data is stored in SQLite
-and returned by an unauthenticated API. On a public demo, do not paste secrets into the task box.
-The correct fix is auth or per-session scoping (TODO).
+under the session that submitted it. Other visitors can no longer read it, but the demo operator
+can, and so can anyone who obtains that browser's cookie. On a public demo, do not paste secrets
+into the task box. A cookie is an ownership tag, not authentication: clearing cookies loses access
+to your own history, and a shared browser shares a history. Real auth (accounts, or signed
+per-session tokens) is the next step if this ever stops being a demo.
 
 ### 3.4 Resource exhaustion
 
