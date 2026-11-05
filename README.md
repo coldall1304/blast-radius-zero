@@ -299,7 +299,7 @@ blast-radius-zero/
 │   ├── brz.service      systemd unit, 127.0.0.1:8000, sandboxed
 │   ├── Caddyfile        TLS, SSE-safe reverse proxy, security headers
 │   └── README.md        deployment runbook (instance size, rollback)
-├── tests/               pytest: unit + Docker-marked integration (70 tests)
+├── tests/               pytest: unit + Docker-marked integration (77 tests)
 ├── Makefile             local workflow: demo, verify, lab, test, clean
 ├── docker-compose.yml   one-command local stack (socket mount is local-dev only)
 ├── requirements.txt     pinned runtime dependencies
@@ -322,7 +322,7 @@ Inference** (`glm-5.3`).
 
 | Check | Result |
 |---|---|
-| `.venv/bin/python -m pytest -q` | ✅ `58 passed` on 2026-11-03; **`70 passed`** now (10 WASM tests added 2026-11-04, 2 control-plane honesty tests added 2026-11-05) |
+| `.venv/bin/python -m pytest -q` | ✅ `58 passed` on 2026-11-03; **`77 passed`** now (10 WASM tests 2026-11-04, 9 control-plane honesty tests 2026-11-05) |
 | Containment suite (live kernel behaviour, on the deployment) | ✅ **7/7 contained** — EROFS, host-PID bound under a fork flood, 10.2 s watchdog kill, `network=none`, no secrets, OOM kill, fsize/disk cap |
 | Task dispatch end-to-end (real model, Vultr Serverless Inference) | ✅ `verified: true`, 2–3 steps, artifacts `walk.json` + `walk.png` downloadable over HTTPS |
 | Artifact download | ✅ `HTTP 200`, `image/png` and `text/plain` round-trip |

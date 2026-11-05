@@ -90,6 +90,21 @@ class TaskIn(BaseModel):
     task: str = Field(min_length=3)
 
 
+def terminal_status(final: dict[str, Any]) -> str:
+    """Map a finished run's payload to the status recorded in the ledger.
+
+    ``verified`` is three-valued on purpose: ``True``/``False`` come from the
+    auditor, ``None`` means the auditor never ran (inference outage, unparseable
+    JSON). Treating ``None`` as success would present an unaudited answer as a
+    clean pass, which is exactly the failure this runtime exists to prevent.
+    """
+    if final.get("error"):
+        return "error"
+    if final.get("verified") is None:
+        return "unverified"
+    return "done" if final["verified"] else "unverified"
+
+
 bus: Bus | None = None
 task_sem: asyncio.Semaphore | None = None
 probe_sem: asyncio.Semaphore | None = None
@@ -174,16 +189,7 @@ async def create_run(payload: TaskIn, request: Request) -> dict[str, str]:
             bus.publish(run_id, {"type": "run.status", "status": "running"})
             try:
                 final = await agent.run_task(run_id, task, bus.view(run_id))
-                if final.get("error"):
-                    status = "error"
-                elif final.get("verified") is False:
-                    status = "unverified"
-                elif final.get("verified") is None:
-                    # The verifier could not run (inference outage, bad JSON).
-                    # An unaudited answer must not be reported as a clean "done".
-                    status = "unverified"
-                else:
-                    status = "done"
+                status = terminal_status(final)
             except Exception as exc:  # never leave a run without a terminal event
                 final = {"answer": f"control plane error: {exc}", "verified": False,
                          "verification": str(exc), "model": settings.inference_model}
